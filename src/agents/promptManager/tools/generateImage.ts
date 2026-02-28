@@ -19,8 +19,8 @@ import { LLMProviderSettings } from '../../../types/llm/ProviderTypes';
 
 export interface GenerateImageParams extends CommonParameters {
   prompt: string;
-  provider?: 'google' | 'openrouter'; // Defaults to 'google' if available
-  model?: 'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-image-preview' | 'gpt-5-image' | 'flux-2-pro' | 'flux-2-flex'; // Defaults to 'gemini-2.5-flash-image'
+  provider?: 'google' | 'openrouter'; // Defaults to user settings or first available provider
+  model?: string; // Defaults to user settings or first available model for the provider
   aspectRatio?: AspectRatio;
   numberOfImages?: number;
   imageSize?: '512px' | '1K' | '2K' | '4K';
@@ -114,13 +114,12 @@ export class GenerateImageTool extends BaseTool<GenerateImageParams, GenerateIma
         return createResult<GenerateImageModeResult>(
           false,
           undefined,
-          'No image generation providers available. Please configure Google API key in plugin settings.'
+          'No image generation providers available. Please configure a Google or OpenRouter API key in plugin settings.'
         );
       }
 
-      // Apply defaults: google provider and gemini-2.5-flash-image model
-      const provider = params.provider || 'google';
-      const model = params.model || 'gemini-2.5-flash-image';
+      // Apply defaults from user settings, falling back to first available provider/model
+      const { provider, model } = this.resolveDefaults(params.provider, params.model);
 
       // Validate parameters
       const validation = await this.imageService.validateParams({
@@ -137,10 +136,12 @@ export class GenerateImageTool extends BaseTool<GenerateImageParams, GenerateIma
       });
 
       if (!validation.isValid) {
+        const availableModels = this.getAvailableModelIds();
+        const availableProviders = this.getAvailableProviderNames();
         return createResult<GenerateImageModeResult>(
           false,
           undefined,
-          `Parameter validation failed: ${validation.errors.join(', ')}`
+          `Parameter validation failed: ${validation.errors.join(', ')}. Available providers: ${availableProviders.join(', ')}. Available models: ${availableModels.join(', ')}`
         );
       }
 
@@ -182,27 +183,85 @@ export class GenerateImageTool extends BaseTool<GenerateImageParams, GenerateIma
   }
 
   /**
+   * Resolve provider and model defaults from user settings.
+   * Priority: explicit param > user settings > first available provider/model
+   */
+  private resolveDefaults(
+    paramProvider?: string,
+    paramModel?: string
+  ): { provider: 'google' | 'openrouter'; model: string } {
+    // User settings defaults
+    const settingsProvider = this.llmSettings?.defaultImageModel?.provider;
+    const settingsModel = this.llmSettings?.defaultImageModel?.model;
+
+    // Resolve provider: param > settings > first available > 'google'
+    let provider: 'google' | 'openrouter' = (paramProvider as 'google' | 'openrouter') || settingsProvider || 'google';
+
+    // If chosen provider is not available, try the other one
+    if (this.imageService) {
+      const initializedProviders = this.imageService.getInitializedProviders();
+      if (initializedProviders.length > 0 && !initializedProviders.includes(provider)) {
+        const available = initializedProviders.find(p => p === 'google' || p === 'openrouter');
+        if (available) {
+          provider = available as 'google' | 'openrouter';
+        }
+      }
+    }
+
+    // Resolve model: param > settings (if matching provider) > first model for provider
+    let model = paramModel || '';
+    if (!model && settingsModel && settingsProvider === provider) {
+      model = settingsModel;
+    }
+    if (!model && this.imageService) {
+      const providerModels = this.imageService.getSupportedModelIds(provider);
+      if (providerModels.length > 0) {
+        model = providerModels[0];
+      }
+    }
+    if (!model) {
+      model = 'gemini-2.5-flash-image';
+    }
+
+    return { provider, model };
+  }
+
+  /**
    * Build the dynamic model enum from the image service adapters.
    * Falls back to a static list if the service isn't initialized.
    */
   private getAvailableModelIds(): string[] {
-    if (!this.imageService) {
-      return ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gpt-5-image', 'flux-2-pro', 'flux-2-flex'];
-    }
-
-    // Collect unique model IDs across all initialized adapters
-    const modelIds = new Set<string>();
-    const providers: Array<'google' | 'openrouter'> = ['google', 'openrouter'];
-    for (const provider of providers) {
-      const models = this.imageService.getSupportedModelIds(provider);
-      for (const id of models) {
-        modelIds.add(id);
+    if (this.imageService) {
+      // Collect unique model IDs across all initialized adapters
+      const modelIds = new Set<string>();
+      const providers: Array<'google' | 'openrouter'> = ['google', 'openrouter'];
+      for (const provider of providers) {
+        const models = this.imageService.getSupportedModelIds(provider);
+        for (const id of models) {
+          modelIds.add(id);
+        }
+      }
+      if (modelIds.size > 0) {
+        return Array.from(modelIds);
       }
     }
 
-    return modelIds.size > 0
-      ? Array.from(modelIds)
-      : ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gpt-5-image', 'flux-2-pro', 'flux-2-flex'];
+    // Minimal fallback — only the most common default model
+    return ['gemini-2.5-flash-image'];
+  }
+
+  /**
+   * Get list of available provider names for schema and error messages
+   */
+  private getAvailableProviderNames(): string[] {
+    if (this.imageService) {
+      const providers = this.imageService.getInitializedProviders()
+        .filter(p => p === 'google' || p === 'openrouter');
+      if (providers.length > 0) {
+        return providers;
+      }
+    }
+    return ['google', 'openrouter'];
   }
 
   /**
@@ -210,6 +269,8 @@ export class GenerateImageTool extends BaseTool<GenerateImageParams, GenerateIma
    */
   getParameterSchema(): JSONSchema {
     const modelEnum = this.getAvailableModelIds();
+    const providerEnum = this.getAvailableProviderNames();
+    const defaults = this.resolveDefaults();
 
     const toolSchema = {
       type: 'object',
@@ -222,15 +283,15 @@ export class GenerateImageTool extends BaseTool<GenerateImageParams, GenerateIma
         },
         provider: {
           type: 'string',
-          enum: ['google', 'openrouter'],
-          default: 'google',
-          description: 'AI provider (default: google)'
+          enum: providerEnum,
+          default: defaults.provider,
+          description: `AI provider (default: ${defaults.provider}). Available: ${providerEnum.join(', ')}`
         },
         model: {
           type: 'string',
           enum: modelEnum,
-          default: 'gemini-2.5-flash-image',
-          description: 'Image generation model. Available models depend on configured providers.'
+          default: defaults.model,
+          description: `Image generation model (default: ${defaults.model}). Available: ${modelEnum.join(', ')}`
         },
         aspectRatio: {
           type: 'string',

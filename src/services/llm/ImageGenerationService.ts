@@ -332,6 +332,13 @@ export class ImageGenerationService {
   }
 
   /**
+   * Get list of initialized (configured + enabled) provider names
+   */
+  getInitializedProviders(): ImageProvider[] {
+    return Array.from(this.adapters.keys());
+  }
+
+  /**
    * Get file manager instance
    */
   getFileManager(): ImageFileManager {

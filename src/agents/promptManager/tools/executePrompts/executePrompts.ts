@@ -330,9 +330,10 @@ export class ExecutePromptsTool extends BaseTool<BatchExecutePromptParams, Batch
    * Get parameter schema for MCP tool definition
    */
   getParameterSchema(): JSONSchema {
-    // Get default from data.json settings
+    // Get defaults from data.json settings
     const defaultModel = this.providerManager?.getSettings()?.defaultModel;
-    
+    const defaultImageModel = this.providerManager?.getSettings()?.defaultImageModel;
+
     const toolSchema = {
       properties: {
         prompts: {
@@ -379,12 +380,12 @@ export class ExecutePromptsTool extends BaseTool<BatchExecutePromptParams, Batch
               // Text-specific properties
               provider: {
                 type: 'string',
-                description: `Optional. LLM provider to use. Defaults to configured agent model (${defaultModel?.provider || 'not set'}). For image generation, defaults to "google" if not specified. Use listModels to see available providers.`,
+                description: `Optional. LLM provider to use. Defaults to configured agent model (${defaultModel?.provider || 'not set'}). For image generation, defaults to configured image provider (${defaultImageModel?.provider || 'not set'}). Use listModels to see available providers.`,
                 default: defaultModel?.provider
               },
               model: {
                 type: 'string',
-                description: `Optional. Model name to use. Defaults to configured agent model (${defaultModel?.model || 'not set'}). For image generation, defaults to "gemini-2.5-flash-image" if not specified. Use listModels to see available models.`,
+                description: `Optional. Model name to use. Defaults to configured agent model (${defaultModel?.model || 'not set'}). For image generation, defaults to configured image model (${defaultImageModel?.model || 'not set'}). Use listModels to see available models.`,
                 default: defaultModel?.model
               },
               contextFiles: {
@@ -432,7 +433,7 @@ export class ExecutePromptsTool extends BaseTool<BatchExecutePromptParams, Batch
                 type: 'array',
                 items: { type: 'string' },
                 maxItems: 14,
-                description: 'Reference images for style/composition (vault-relative paths, image requests only). Max 3 for gemini-2.5-flash-image, max 14 for gemini-3-pro-image-preview'
+                description: 'Reference images for style/composition (vault-relative paths, image requests only). Max count depends on the model used.'
               }
             },
             required: ['type', 'prompt'],
