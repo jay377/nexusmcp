@@ -699,7 +699,7 @@ export class ChatSettingsRenderer {
         dropdown.addOption('', 'None');
 
         this.config.options.prompts.forEach(p => {
-          dropdown.addOption(p.name, p.name);
+          dropdown.addOption(p.id, p.name);
         });
 
         dropdown.setValue(this.settings.promptId || '');
@@ -729,7 +729,7 @@ export class ChatSettingsRenderer {
       const promptId = workspace.context.dedicatedAgent.agentId;
       const prompt = this.config.options.prompts.find(p => p.id === promptId || p.name === promptId);
       if (prompt) {
-        this.settings.promptId = prompt.name;
+        this.settings.promptId = prompt.id;
         this.notifyChange();
         this.render();
       }

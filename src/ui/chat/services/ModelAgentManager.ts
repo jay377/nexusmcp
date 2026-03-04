@@ -43,6 +43,7 @@ interface PluginWithSettings {
     settings?: {
       llmProviders?: {
         defaultThinking?: ThinkingSettings;
+        defaultTemperature?: number;
         agentModel?: { provider: string; model: string };
         agentThinking?: ThinkingSettings;
       };
@@ -289,6 +290,11 @@ export class ModelAgentManager {
           enabled: llmProviders.agentThinking.enabled ?? false,
           effort: llmProviders.agentThinking.effort ?? 'medium'
         };
+      }
+
+      // Load default temperature if set
+      if (llmProviders?.defaultTemperature !== undefined) {
+        this.temperature = llmProviders.defaultTemperature;
       }
 
       // Load default context notes if set
